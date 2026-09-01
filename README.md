@@ -10,15 +10,24 @@ Urban flooding in highly concretized metropolitan areas is a hyper-local phenome
 DrainWatch is a high-resolution, 0–3 hour real-time urban flood nowcasting system. By replacing computationally heavy 1D/2D hydrodynamic simulations (EPA SWMM) with an Attention-based Spatial-Temporal Graph Convolutional Network (ASTGCN), this system predicts localized street flooding in milliseconds and dynamically reroutes traffic away from hazardous zones.
 
 ## Key Features
-*   **AI Surrogate Engine:** Replaces slow physical equations with a trained Graph Neural Network for instant water depth predictions.
-*   **Dynamic API Routing:** Integrates with mapping navigation algorithms to automatically apply infinite cost weights to road edges predicting >15cm of water.
-*   **Real-Time Dashboard:** A React Native-powered mobile interface and web GIS dashboard showing street-by-street inundation heatmaps.
-*   **1D/2D Coupled Topology:** Maps physical city infrastructure, treating manholes/catch basins as nodes and underground pipes as directed graph edges.
+*   **AI Surrogate Engine (MI Model):** Replaces slow physical equations with a trained machine learning model for instant water depth predictions, updating every 5 minutes.
+*   **Citizen's App:** 
+    *   Calculates optimal paths with path flagging capabilities.
+    *   Displays overall flood maps and offline maps.
+    *   Shows which vehicles can pass on certain routes based on ground clearance.
+    *   Includes a reporting system with gamification, SOS emergency contacts, and pop-up alerts.
+*   **Admin Web Dashboard:** 
+    *   Provides a live segmented view of the city map and drainage map.
+    *   Displays live and forecasted weather updates.
+    *   Features analytics, real-time predictions, citizen grievance tracking, and emergency service routes.
+    *   Includes capabilities to ping concerned authorities, alert citizens, and a chatbot for manual update options.
+*   **1D/2D Coupled Topology (Static Data):** Maps physical city infrastructure, utilizing constantly updated pipelines and network data.
 
 ## System Architecture
-1.  **Offline Ground Truth Generation:** Physical simulation of synthetic storms using EPA SWMM to model 1D underground pipe surcharge and 2D surface overland flow.
-2.  **Online GNN Surrogate:** Live Doppler radar feeds directly into the trained ASTGCN model to output real-time hydraulic head and node surcharge volumes.
-3.  **Frontend/API Distribution:** Live flood depth vectors are synchronized via Firebase to power the React Native GIS dashboard and update OSMnx road network weights.
+The architecture relies on multiple data pipelines feeding into a centralized Web Dashboard, which then interfaces with the Citizen's App and concerned authorities:
+1.  **Data Ingestion:** WAPI (Weather API), Maps API, Static Data pipelines (networks, constant updates), and the MI (Machine Intelligence) model feed into the web dashboard.
+2.  **Web Dashboard Centralization:** Acts as the hub, processing analytics, generating 5-minute prediction updates, and handling citizen reports/reviews.
+3.  **Outputs:** Pings concerned authorities with real-time predictions and provides the Citizen's App with traffic data, optimal paths, and emergency routing.
 
 ## Tech Stack
 *   **Backend & Data Processing:** Python, Pandas, GeoPandas, OSMnx, NetworkX
@@ -28,22 +37,15 @@ DrainWatch is a high-resolution, 0–3 hour real-time urban flood nowcasting sys
 *   **Mapping UI:** Mapbox GL / Deck.gl
 
 ## Data Sources 
-*   **Meteorological Data:** ISRO MOSDAC (GSMaP) & IMD Doppler Weather Radar feeds.
+*   **Meteorological Data:** ISRO MOSDAC (GSMaP) & IMD Doppler Weather Radar feeds (WAPI).
 *   **Terrain (DEM):** ISRO Bhuvan CartoDEM (30m) & LULC datasets.
-*   **Road Networks:** OpenStreetMap (OSM) via Python OSMnx.
-*   **Drainage Topology:** Extracted Municipal `.kml`/`.kmz` vector graphics mapped to mathematical graphs.
+*   **Road Networks:** OpenStreetMap (OSM) via Python OSMnx (Maps API).
+*   **Drainage Topology:** Extracted Municipal `.kml`/`.kmz` vector graphics mapped to mathematical graphs (Static Data).
 
 
-
-## Roadmap
-- [x] Extract 1D drainage `.kml` files into directed graphs.
-- [x] Configure PySWMM offline coupling for historical rain data.
-- [ ] Train ASTGCN surrogate on generated node-surcharge dataset.
-- [ ] Deploy dynamic edge-weight routing API.
-- [ ] Finalize React Native EAS build for mobile dashboard.
 
 ## Developed By
-**Team MKB-BAAD**  
+**Team-MKB_BAAD**  
 Artificial Intelligence & Machine Learning  
 
 ---
