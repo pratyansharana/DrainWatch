@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DrainMonitor — Mandi House to Rajiv Chowk Urban Flood Intelligence</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Top Navigation Bar -->
+        <header class="top-nav">
+            <div class="brand">
+                <div class="logo-icon"><i class="fa-solid fa-water-ladder"></i></div>
+                <div class="brand-text">
+                    <h1>DrainMonitor <span class="badge-pilot">Mandi House ➔ Rajiv Chowk Pilot</span></h1>
+                    <p class="subtitle">Physics-Informed Urban Flood Prediction, RL Safe Routing & GenAI Intelligence</p>
+                </div>
+            </div>
+            <div class="system-status">
+                <div class="status-indicator live"></div>
+                <span>5 AI ENGINES ACTIVE</span>
+            </div>
+        </header>
+
+        <!-- Main Dashboard Layout -->
+        <main class="dashboard-grid">
+            <!-- Left Sidebar Controls & Input -->
+            <aside class="sidebar">
+                <!-- Control Panel: Weather & Rainfall -->
+                <div class="card control-card">
+                    <div class="card-header">
+                        <h3><i class="fa-solid fa-cloud-showers-heavy"></i> Rainfall Simulator</h3>
+                    </div>
+                    <div class="card-body">
+                        <div class="slider-group">
+                            <div class="slider-header">
+                                <label for="rain-slider">Rainfall Intensity</label>
+                                <span id="rain-val" class="highlight-val">60 mm/hr</span>
+                            </div>
+                            <input type="range" id="rain-slider" min="0" max="120" value="60" step="5">
+                            <div class="slider-labels">
+                                <span>Light (10)</span>
+                                <span>Heavy (60)</span>
+                                <span>Cloudburst (120)</span>
+                            </div>
+                        </div>
+
+                        <div class="preset-btn-group">
+                            <button class="btn-preset" data-rain="20">20 mm/h</button>
+                            <button class="btn-preset active" data-rain="60">60 mm/h</button>
+                            <button class="btn-preset" data-rain="90">90 mm/h</button>
+                            <button class="btn-preset danger" data-rain="120">120 mm/h</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- GenAI City Intelligence Report Panel -->
+                <div class="card genai-card">
+                    <div class="card-header">
+                        <h3><i class="fa-solid fa-brain"></i> GenAI City Intelligence</h3>
+                        <span class="badge-ai">Live NLP</span>
+                    </div>
+                    <div class="card-body">
+                        <p class="desc-text">Enter unstructured citizen or authority report text to dynamically update drain capacities:</p>
+                        <div class="input-wrapper">
+                            <textarea id="citizen-report-input" rows="3" placeholder="e.g. Clogged drain near Barakhamba metro gate 2 with construction plastic bags..."></textarea>
+                            <button id="btn-submit-report" class="btn-primary">
+                                <i class="fa-solid fa-paper-plane"></i> Process Report
+                            </button>
+                        </div>
+                        
+                        <div class="preset-reports">
+                            <span class="preset-title">Sample Citizen Reports:</span>
+                            <button class="btn-report-sample" data-report="Drain choked near Barakhamba metro station gate 2 due to garbage dumping.">
+                                "Drain choked near Barakhamba Metro..."
+                            </button>
+                            <button class="btn-report-sample" data-report="Construction at Rajiv Chowk metro entrance blocking 50% road capacity.">
+                                "Construction at Rajiv Chowk..."
+                            </button>
+                        </div>
+
+                        <div id="genai-output-box" class="genai-output hidden">
+                            <div class="output-header">
+                                <i class="fa-solid fa-microchip"></i> Extracted Event Structure
+                            </div>
+                            <div id="genai-payload" class="json-code"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- System Stats Summary -->
+                <div class="card stats-card">
+                    <div class="card-header">
+                        <h3><i class="fa-solid fa-chart-line"></i> Hydraulics & Terrain Overview</h3>
+                    </div>
+                    <div class="card-body grid-2">
+                        <div class="stat-box">
+                            <span class="stat-label">Max Surface Depth</span>
+                            <span id="stat-max-depth" class="stat-value text-warning">24.3 cm</span>
+                        </div>
+                        <div class="stat-box">
+                            <span class="stat-label">Mean Surface Depth</span>
+                            <span id="stat-mean-depth" class="stat-value">6.1 cm</span>
+                        </div>
+                        <div class="stat-box">
+                            <span class="stat-label">D8 Flow Cells</span>
+                            <span class="stat-value">900 Nodes</span>
+                        </div>
+                        <div class="stat-box">
+                            <span class="stat-label">1D Drainage Network</span>
+                            <span class="stat-value">7 Trunk Pipes</span>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Center Visualizer: Map & Grid Flow -->
+            <section class="main-map-section card">
+                <div class="map-header">
+                    <div class="map-title-group">
+                        <h2><i class="fa-solid fa-map-location-dot"></i> Mandi House ➔ Rajiv Chowk Interactive Map</h2>
+                        <span class="map-sub">Real-Time Flood Prediction Overlay & Flow Accumulation</span>
+                    </div>
+                    <div class="map-controls">
+                        <button id="btn-toggle-view" class="btn-toggle active"><i class="fa-solid fa-layer-group"></i> Street & Terrain Flow</button>
+                    </div>
+                </div>
+
+                <div class="map-viewport">
+                    <!-- Interactive Visual Canvas -->
+                    <canvas id="flood-canvas" width="800" height="500"></canvas>
+                    
+                    <!-- Floating Map Overlay Legend -->
+                    <div class="map-legend">
+                        <div class="legend-title">Flood Depth Legend</div>
+                        <div class="legend-item"><span class="color-box clear"></span> 0 - 5 cm (LOW Risk)</div>
+                        <div class="legend-item"><span class="color-box medium"></span> 5 - 15 cm (MEDIUM Risk)</div>
+                        <div class="legend-item"><span class="color-box high"></span> 15 - 30 cm (HIGH Risk)</div>
+                        <div class="legend-item"><span class="color-box critical"></span> > 30 cm (CRITICAL)</div>
+                        <div class="legend-divider"></div>
+                        <div class="legend-item"><span class="line-route rl"></span> RL Safe Route</div>
+                        <div class="legend-item"><span class="line-route naive"></span> Naive Shortest Path</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right Sidebar: RL Decision Engine & Landmark Predictions -->
+            <aside class="sidebar-right">
+                <!-- RL Routing Decision Engine Card -->
+                <div class="card rl-card">
+                    <div class="card-header">
+                        <h3><i class="fa-solid fa-route"></i> RL Safe Route Decision Engine</h3>
+                        <span class="badge-rl">Q-Learning Policy</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="routing-comparison">
+                            <div class="route-box rl-box">
+                                <div class="box-title"><i class="fa-solid fa-shield-halved"></i> RL Safe Route</div>
+                                <div id="rl-route-path" class="route-nodes">Mandi House ➔ Tolstoy Marg ➔ Janpath ➔ Rajiv Chowk</div>
+                                <div class="route-metrics">
+                                    <span>Time: <strong id="rl-time">8.5 min</strong></span>
+                                    <span>Max Depth: <strong id="rl-depth" class="text-success">2.1 cm</strong></span>
+                                </div>
+                            </div>
+
+                            <div class="route-box naive-box">
+                                <div class="box-title"><i class="fa-solid fa-triangle-exclamation"></i> Naive Shortest Path</div>
+                                <div id="naive-route-path" class="route-nodes">Mandi House ➔ Barakhamba Rd ➔ Rajiv Chowk</div>
+                                <div class="route-metrics">
+                                    <span>Time: <strong id="naive-time">7.0 min</strong></span>
+                                    <span>Max Depth: <strong id="naive-depth" class="text-danger">34.5 cm</strong></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="rl-reason-box" class="recommendation-callout">
+                            <i class="fa-solid fa-circle-info"></i>
+                            <span id="rl-reason-text">RL Agent rerouted via Tolstoy Marg & Janpath to avoid 34.5 cm deep water on Barakhamba Road.</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Street / Landmark Flood Predictions List -->
+                <div class="card landmarks-card">
+                    <div class="card-header">
+                        <h3><i class="fa-solid fa-list-check"></i> Corridor Landmark Predictions</h3>
+                    </div>
+                    <div class="card-body">
+                        <div id="landmarks-list" class="landmarks-list">
+                            <!-- Dynamically populated -->
+                        </div>
+                    </div>
+                </div>
+            </aside>
+        </main>
+    </div>
+
+    <script src="/app.js"></script>
+</body>
+</html>
