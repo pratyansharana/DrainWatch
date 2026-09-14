@@ -1,8 +1,14 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Switch } from 'react-native';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import MapView, { Circle, Marker, Polyline, type Region } from 'react-native-maps';
+import MapView, { Marker, Polyline, type Region } from 'react-native-maps';
+import {
+  fetchSafeRoute,
+  fetchRoadGeometry,
+  CORRIDOR_LANDMARKS,
+  SafeRouteResponse,
+} from '../../services/drainApi';
 
 const VEHICLES = [
   { id: 'Two-Wheeler', icon: 'bicycle-outline', clearance: 12 },
@@ -11,46 +17,67 @@ const VEHICLES = [
   { id: 'Heavy Transport', icon: 'bus-outline', clearance: 38 },
 ] as const;
 
+const AVAILABLE_NODES = Object.keys(CORRIDOR_LANDMARKS);
+
 const DELHI_ROUTE_REGION: Region = {
-  latitude: 28.6139,
-  longitude: 77.2090,
-  latitudeDelta: 0.25,
-  longitudeDelta: 0.18,
+  latitude: 28.6285,
+  longitude: 77.2255,
+  latitudeDelta: 0.024,
+  longitudeDelta: 0.024,
 };
-
-const SAFE_ROUTE = [
-  { latitude: 28.5355, longitude: 77.1855 },
-  { latitude: 28.5672, longitude: 77.1944 },
-  { latitude: 28.5907, longitude: 77.2129 },
-  { latitude: 28.6269, longitude: 77.2189 },
-  { latitude: 28.6542, longitude: 77.2093 },
-  { latitude: 28.7041, longitude: 77.1827 },
-];
-
-const FLOODED_ROUTE = [
-  { latitude: 28.5355, longitude: 77.1855 },
-  { latitude: 28.5748, longitude: 77.2261 },
-  { latitude: 28.6139, longitude: 77.2365 },
-  { latitude: 28.6506, longitude: 77.2392 },
-  { latitude: 28.7041, longitude: 77.2323 },
-];
 
 export default function ExploreScreen() {
   const insets = useSafeAreaInsets();
-  const [meshOnline, setMeshOnline] = useState(true);
+  const [origin, setOrigin] = useState<string>("Mandi House");
+  const [destination, setDestination] = useState<string>("Rajiv Chowk Outer Circle");
   const [vehicle, setVehicle] = useState<(typeof VEHICLES)[number]['id']>('SUV');
   const [routeRegion, setRouteRegion] = useState<Region>(DELHI_ROUTE_REGION);
+  const [loading, setLoading] = useState(false);
+  const [routeData, setRouteData] = useState<SafeRouteResponse | null>(null);
 
-  const selectedVehicle = useMemo(() => VEHICLES.find((item) => item.id === vehicle) ?? VEHICLES[2], [vehicle]);
-  const safeLatency = selectedVehicle.clearance > 20 ? '31 min' : '44 min';
+  const selectedVehicle = useMemo(
+    () => VEHICLES.find((item) => item.id === vehicle) ?? VEHICLES[2],
+    [vehicle]
+  );
 
-  const zoomRoute = (factor: number) => {
-    setRouteRegion((current) => ({
-      ...current,
-      latitudeDelta: Math.max(0.018, Math.min(0.46, current.latitudeDelta * factor)),
-      longitudeDelta: Math.max(0.014, Math.min(0.34, current.longitudeDelta * factor)),
-    }));
-  };
+  const loadRoute = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetchSafeRoute(origin, destination);
+      setRouteData(res);
+    } catch (e) {
+      console.error('[ExploreScreen] Error loading route:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, [origin, destination]);
+
+  useEffect(() => {
+    loadRoute();
+  }, [loadRoute]);
+
+  const [safeRoadCoords, setSafeRoadCoords] = useState<{ latitude: number; longitude: number }[]>([]);
+  const [naiveRoadCoords, setNaiveRoadCoords] = useState<{ latitude: number; longitude: number }[]>([]);
+
+  useEffect(() => {
+    async function resolveRealRoads() {
+      if (routeData?.rl_safe_route) {
+        const safe = await fetchRoadGeometry(routeData.rl_safe_route);
+        setSafeRoadCoords(safe);
+      } else {
+        setSafeRoadCoords([]);
+      }
+      if (routeData?.naive_route) {
+        const naive = await fetchRoadGeometry(routeData.naive_route);
+        setNaiveRoadCoords(naive);
+      } else {
+        setNaiveRoadCoords([]);
+      }
+    }
+    resolveRealRoads();
+  }, [routeData]);
+
+  const isClearForVehicle = (routeData?.rl_max_flood_depth_cm ?? 0) <= selectedVehicle.clearance;
 
   return (
     <View style={styles.screen}>
@@ -60,56 +87,72 @@ export default function ExploreScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <Text style={styles.title}>Vehicle Clearance Matrix</Text>
-          <Text style={styles.subtitle}>OSMnx graph weights shift when flood thresholds exceed 15 cm.</Text>
+          <Text style={styles.title}>Q-Learning Safe Router</Text>
+          <Text style={styles.subtitle}>
+            Dynamic hydraulic edge weighting avoids street submergence &gt; 15 cm.
+          </Text>
         </View>
 
+        {/* Origin & Destination Selectors */}
         <View style={styles.inputRow}>
           <View style={styles.inputPill}>
-            <Ionicons name="navigate-outline" size={18} color="#0891B2" />
-            <TextInput style={styles.input} placeholder="Origin" placeholderTextColor="#94A3B8" defaultValue="Depot 7" />
+            <Ionicons name="navigate-circle-outline" size={20} color="#0891B2" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.selectorLabel}>ORIGIN</Text>
+              <Text style={styles.selectorValue}>{origin}</Text>
+            </View>
           </View>
           <View style={styles.inputPill}>
-            <Ionicons name="flag-outline" size={18} color="#0891B2" />
-            <TextInput style={styles.input} placeholder="Destination" placeholderTextColor="#94A3B8" defaultValue="Ward 12 Pump House" />
+            <Ionicons name="flag-outline" size={20} color="#0891B2" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.selectorLabel}>DESTINATION</Text>
+              <Text style={styles.selectorValue}>{destination}</Text>
+            </View>
+            <TouchableOpacity style={styles.recalculateBtn} onPress={loadRoute} disabled={loading}>
+              {loading ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Ionicons name="sparkles" size={16} color="#FFFFFF" />
+              )}
+            </TouchableOpacity>
           </View>
         </View>
 
-        <View style={styles.meshRow}>
-          <View>
-            <Text style={styles.meshTitle}>Offline Mesh Status</Text>
-            <Text style={styles.meshSub}>{meshOnline ? 'Local relays available for rerouting' : 'Cloud routing only'}</Text>
-          </View>
-          <Switch
-            value={meshOnline}
-            onValueChange={setMeshOnline}
-            trackColor={{ false: '#CBD5E1', true: '#A7F3D0' }}
-            thumbColor={meshOnline ? '#047857' : '#F8FAFC'}
-          />
-        </View>
-
+        {/* Vehicle Selection Chips */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.vehicleToolbar}>
           {VEHICLES.map((item) => {
             const active = item.id === vehicle;
             return (
-              <TouchableOpacity key={item.id} style={[styles.vehicleChip, active && styles.vehicleChipActive]} onPress={() => setVehicle(item.id)}>
+              <TouchableOpacity
+                key={item.id}
+                style={[styles.vehicleChip, active && styles.vehicleChipActive]}
+                onPress={() => setVehicle(item.id)}
+              >
                 <Ionicons name={item.icon} size={18} color={active ? '#FFFFFF' : '#155E75'} />
-                <Text style={[styles.vehicleText, active && styles.vehicleTextActive]}>{item.id}</Text>
+                <Text style={[styles.vehicleText, active && styles.vehicleTextActive]}>
+                  {item.id} ({item.clearance}cm)
+                </Text>
               </TouchableOpacity>
             );
           })}
         </ScrollView>
 
+        {/* Interactive Map */}
         <View style={styles.routeMapCard}>
           <View style={styles.mapHeader}>
             <View>
-              <Text style={styles.mapTitle}>Delhi Routing Graph</Text>
-              <Text style={styles.mapSub}>Safe corridor avoids Yamuna-bank flood edges above 15 cm.</Text>
+              <Text style={styles.mapTitle}>Mandi House → Rajiv Chowk Corridor</Text>
+              <Text style={styles.mapSub}>
+                Green: Safe RL Route · Red dashed: Naive shortest path
+              </Text>
             </View>
             <View style={styles.mapScale}>
-              <Text style={styles.mapScaleText}>8.4 km</Text>
+              <Text style={styles.mapScaleText}>
+                {routeData ? `${routeData.rl_travel_time_min} min` : 'Loading...'}
+              </Text>
             </View>
           </View>
+
           <View style={styles.routeMapCanvas}>
             <MapView
               style={StyleSheet.absoluteFill}
@@ -117,87 +160,125 @@ export default function ExploreScreen() {
               onRegionChangeComplete={setRouteRegion}
               showsCompass
               showsScale
-              rotateEnabled={false}
-              pitchEnabled={false}
-              zoomEnabled
-              scrollEnabled
             >
-              <Circle
-                center={{ latitude: 28.6506, longitude: 77.2392 }}
-                radius={3900}
-                fillColor="rgba(251, 113, 133, 0.3)"
-                strokeColor="#E11D48"
-                strokeWidth={1}
-              />
-              <Circle
-                center={{ latitude: 28.6139, longitude: 77.2365 }}
-                radius={2500}
-                fillColor="rgba(245, 158, 11, 0.26)"
-                strokeColor="#F59E0B"
-                strokeWidth={1}
-              />
-              <Polyline coordinates={FLOODED_ROUTE} strokeColor="#E11D48" strokeWidth={6} lineDashPattern={[10, 8]} />
-              <Polyline coordinates={SAFE_ROUTE} strokeColor="#059669" strokeWidth={7} />
-              <Polyline coordinates={SAFE_ROUTE} strokeColor="#BBF7D0" strokeWidth={2} />
-              <Marker coordinate={SAFE_ROUTE[0]} title="Origin" description="Depot 7" />
-              <Marker coordinate={SAFE_ROUTE[SAFE_ROUTE.length - 1]} title="Destination" description="Ward 12 Pump House" />
-              <Marker coordinate={{ latitude: 28.6506, longitude: 77.2392 }} title="Submerged Route" description="37 cm water depth" />
+              {/* Naive Path (Red Dashed) */}
+              {naiveRoadCoords.length > 1 && (
+                <Polyline
+                  coordinates={naiveRoadCoords}
+                  strokeColor="#E11D48"
+                  strokeWidth={5}
+                  lineDashPattern={[8, 8]}
+                />
+              )}
+
+              {/* RL Safe Path (Green Solid) */}
+              {safeRoadCoords.length > 1 && (
+                <Polyline
+                  coordinates={safeRoadCoords}
+                  strokeColor="#059669"
+                  strokeWidth={6}
+                />
+              )}
+
+              {/* Landmarks */}
+              {AVAILABLE_NODES.map((name) => {
+                const coord = CORRIDOR_LANDMARKS[name];
+                const isOrigin = name === origin;
+                const isDest = name === destination;
+                return (
+                  <Marker
+                    key={name}
+                    coordinate={{ latitude: coord.latitude, longitude: coord.longitude }}
+                    title={name}
+                    description={`Elevation: ${coord.elevation_m}m`}
+                  >
+                    <View
+                      style={[
+                        styles.markerPin,
+                        isOrigin && styles.markerOrigin,
+                        isDest && styles.markerDest,
+                      ]}
+                    >
+                      <Ionicons
+                        name={isOrigin ? 'pin' : isDest ? 'flag' : 'ellipse'}
+                        size={isOrigin || isDest ? 14 : 8}
+                        color="#FFFFFF"
+                      />
+                    </View>
+                  </Marker>
+                );
+              })}
             </MapView>
-            <View style={styles.routeZoomControls}>
-              <TouchableOpacity style={styles.routeZoomButton} onPress={() => zoomRoute(0.62)}>
-                <Ionicons name="add" size={20} color="#0F172A" />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.routeZoomButton} onPress={() => zoomRoute(1.38)}>
-                <Ionicons name="remove" size={20} color="#0F172A" />
-              </TouchableOpacity>
-            </View>
           </View>
+
           <View style={styles.legendRow}>
             <View style={styles.legendItem}>
               <View style={[styles.legendLine, styles.safeLegend]} />
-              <Text style={styles.legendText}>Primary safe route</Text>
+              <Text style={styles.legendText}>Q-Learning Safe Path</Text>
             </View>
             <View style={styles.legendItem}>
               <View style={[styles.legendLine, styles.blockedLegend]} />
-              <Text style={styles.legendText}>Submerged route</Text>
+              <Text style={styles.legendText}>Naive Flooded Path</Text>
             </View>
           </View>
         </View>
 
+        {/* Route Comparison Matrix */}
         <View style={styles.matrix}>
+          {/* Safe Corridor Card */}
           <View style={[styles.routeCard, styles.safeCard]}>
             <View style={styles.routeHeader}>
-              <Ionicons name="shield-checkmark" size={24} color="#047857" />
-              <Text style={styles.routeBadge}>Recommended</Text>
+              <Ionicons name="shield-checkmark" size={22} color="#047857" />
+              <Text style={styles.routeBadge}>RL Policy</Text>
             </View>
-            <Text style={styles.routeTitle}>Primary Safe Corridor</Text>
-            <Text style={styles.routeMeta}>{safeLatency} latency · max depth 11 cm · 8.4 km</Text>
-            <View style={styles.routePath}>
-              <View style={styles.routeDot} />
-              <View style={styles.routeLine} />
-              <View style={styles.routeDot} />
-              <View style={styles.routeLine} />
-              <View style={styles.routeDot} />
-            </View>
-            <Text style={styles.routeNote}>Clear for {vehicle} with {selectedVehicle.clearance} cm clearance.</Text>
+            <Text style={styles.routeTitle}>Safe Corridor</Text>
+            <Text style={styles.routeMeta}>
+              {routeData?.rl_travel_time_min ?? '--'} min · max depth {routeData?.rl_max_flood_depth_cm ?? '--'} cm
+            </Text>
+            <Text style={styles.routePathSummary} numberOfLines={2}>
+              {routeData?.rl_safe_route?.join(' → ') ?? 'Computing path...'}
+            </Text>
+            <Text
+              style={[
+                styles.routeNote,
+                { color: isClearForVehicle ? '#047857' : '#DC2626', fontWeight: '800' },
+              ]}
+            >
+              {isClearForVehicle
+                ? `✓ Clear for ${vehicle} (${selectedVehicle.clearance} cm clearance)`
+                : `⚠ Clearance exceeded for ${vehicle}`}
+            </Text>
           </View>
 
+          {/* Naive Path Card */}
           <View style={[styles.routeCard, styles.blockedCard]}>
             <View style={styles.routeHeader}>
-              <Ionicons name="warning" size={24} color="#DC2626" />
-              <Text style={[styles.routeBadge, styles.dangerBadge]}>Suppressed</Text>
+              <Ionicons name="warning" size={22} color="#DC2626" />
+              <Text style={[styles.routeBadge, styles.dangerBadge]}>
+                {routeData?.hazard_avoided ? 'High Hazard' : 'Direct'}
+              </Text>
             </View>
-            <Text style={styles.routeTitle}>Submerged Route</Text>
-            <Text style={styles.routeMeta}>18 min latency · max depth 37 cm · 5.2 km</Text>
-            <View style={styles.depthStrip}>
-              {[12, 18, 31, 37, 22].map((depth) => (
-                <View key={depth} style={[styles.depthBlock, depth > 15 && styles.depthBlockDanger]}>
-                  <Text style={styles.depthText}>{depth}</Text>
-                </View>
-              ))}
-            </View>
-            <Text style={styles.routeNote}>Excluded because edge depth exceeds safe flood vector.</Text>
+            <Text style={styles.routeTitle}>Naive Route</Text>
+            <Text style={styles.routeMeta}>
+              {routeData?.naive_travel_time_min ?? '--'} min · max depth {routeData?.naive_max_flood_depth_cm ?? '--'} cm
+            </Text>
+            <Text style={styles.routePathSummary} numberOfLines={2}>
+              {routeData?.naive_route?.join(' → ') ?? 'Calculating...'}
+            </Text>
+            <Text style={styles.routeNote}>
+              {routeData?.hazard_avoided
+                ? 'Suppressed by RL Agent due to severe water accumulation barrier.'
+                : 'Direct path passable under current conditions.'}
+            </Text>
           </View>
+        </View>
+
+        {/* RL Recommendation Reason Banner */}
+        <View style={styles.explanationBanner}>
+          <Ionicons name="information-circle" size={20} color="#0369A1" />
+          <Text style={styles.explanationText}>
+            {routeData?.recommendation_reason || 'Loading agent routing policy from FastAPI...'}
+          </Text>
         </View>
       </ScrollView>
     </View>
@@ -206,51 +287,106 @@ export default function ExploreScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#F4F8F7' },
-  container: { paddingHorizontal: 18, paddingBottom: 34, gap: 18 },
-  header: { gap: 5 },
-  title: { fontSize: 26, fontWeight: '900', color: '#0F172A' },
-  subtitle: { fontSize: 13, color: '#64748B', lineHeight: 19 },
+  container: { paddingHorizontal: 18, paddingBottom: 34, gap: 16 },
+  header: { gap: 4 },
+  title: { fontSize: 24, fontWeight: '900', color: '#0F172A' },
+  subtitle: { fontSize: 13, color: '#64748B', lineHeight: 18 },
   inputRow: { gap: 10 },
-  inputPill: { height: 52, borderRadius: 26, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#DDE8E6', paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 10, boxShadow: '0 4px 12px rgba(15,23,42,0.06)' },
-  input: { flex: 1, fontSize: 15, color: '#0F172A', fontWeight: '700' },
-  meshRow: { borderRadius: 18, backgroundColor: '#E8F3F0', padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  meshTitle: { fontSize: 15, fontWeight: '800', color: '#0F172A' },
-  meshSub: { fontSize: 12, color: '#64748B', marginTop: 2 },
-  vehicleToolbar: { gap: 10, paddingVertical: 2 },
-  vehicleChip: { flexDirection: 'row', alignItems: 'center', gap: 7, borderRadius: 22, paddingHorizontal: 14, paddingVertical: 10, backgroundColor: '#E0F2FE', borderWidth: 1, borderColor: '#BAE6FD', boxShadow: 'inset 2px 2px 4px rgba(14,116,144,0.12), inset -2px -2px 4px rgba(255,255,255,0.9)' },
-  vehicleChipActive: { backgroundColor: '#155E75', borderColor: '#155E75', boxShadow: 'inset 2px 2px 5px rgba(0,0,0,0.28)' },
-  vehicleText: { fontSize: 12, fontWeight: '900', color: '#155E75' },
+  inputPill: {
+    height: 54,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#DDE8E6',
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  selectorLabel: { fontSize: 9, fontWeight: '800', color: '#64748B' },
+  selectorValue: { fontSize: 14, fontWeight: '800', color: '#0F172A', marginTop: 1 },
+  recalculateBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#0E7490',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  vehicleToolbar: { gap: 8, paddingVertical: 2 },
+  vehicleChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#E0F2FE',
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+  },
+  vehicleChipActive: { backgroundColor: '#155E75', borderColor: '#155E75' },
+  vehicleText: { fontSize: 12, fontWeight: '800', color: '#155E75' },
   vehicleTextActive: { color: '#FFFFFF' },
-  routeMapCard: { borderRadius: 22, padding: 16, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: '#DDE8E6', boxShadow: '0 10px 24px rgba(15,23,42,0.08)' },
-  mapHeader: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 12 },
-  mapTitle: { fontSize: 18, fontWeight: '900', color: '#0F172A' },
-  mapSub: { fontSize: 12, lineHeight: 17, color: '#64748B', marginTop: 3, maxWidth: 235 },
-  mapScale: { borderRadius: 15, backgroundColor: '#DCFCE7', paddingHorizontal: 10, paddingVertical: 6 },
+  routeMapCard: {
+    borderRadius: 22,
+    padding: 14,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#DDE8E6',
+  },
+  mapHeader: { flexDirection: 'row', justifyContent: 'space-between', gap: 10, marginBottom: 10 },
+  mapTitle: { fontSize: 15, fontWeight: '900', color: '#0F172A' },
+  mapSub: { fontSize: 11, color: '#64748B', marginTop: 2 },
+  mapScale: { borderRadius: 12, backgroundColor: '#DCFCE7', paddingHorizontal: 8, paddingVertical: 4 },
   mapScaleText: { fontSize: 11, fontWeight: '900', color: '#047857' },
-  routeMapCanvas: { height: 320, borderRadius: 18, backgroundColor: '#F1F8F6', overflow: 'hidden', borderWidth: 1, borderColor: '#E2E8F0' },
-  routeZoomControls: { position: 'absolute', right: 10, top: 10, gap: 8 },
-  routeZoomButton: { width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(255,255,255,0.94)', alignItems: 'center', justifyContent: 'center', boxShadow: '0 7px 14px rgba(15,23,42,0.14)' },
-  legendRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 12 },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  legendLine: { width: 24, height: 5, borderRadius: 3 },
+  routeMapCanvas: { height: 260, borderRadius: 16, backgroundColor: '#F1F8F6', overflow: 'hidden' },
+  markerPin: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#0284C7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+  },
+  markerOrigin: { backgroundColor: '#059669', width: 22, height: 22, borderRadius: 11 },
+  markerDest: { backgroundColor: '#E11D48', width: 22, height: 22, borderRadius: 11 },
+  legendRow: { flexDirection: 'row', gap: 16, marginTop: 10 },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  legendLine: { width: 20, height: 4, borderRadius: 2 },
   safeLegend: { backgroundColor: '#059669' },
   blockedLegend: { backgroundColor: '#E11D48' },
-  legendText: { fontSize: 12, color: '#475569', fontWeight: '800' },
-  matrix: { flexDirection: 'row', gap: 12 },
-  routeCard: { flex: 1, minHeight: 250, borderRadius: 18, padding: 15, borderWidth: 1, boxShadow: '0 10px 24px rgba(15,23,42,0.08)' },
+  legendText: { fontSize: 11, color: '#475569', fontWeight: '700' },
+  matrix: { flexDirection: 'row', gap: 10 },
+  routeCard: { flex: 1, borderRadius: 18, padding: 14, borderWidth: 1, gap: 6 },
   safeCard: { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' },
   blockedCard: { backgroundColor: '#FFF7ED', borderColor: '#FED7AA' },
-  routeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
-  routeBadge: { fontSize: 10, fontWeight: '900', color: '#047857', backgroundColor: '#D1FAE5', paddingHorizontal: 8, paddingVertical: 5, borderRadius: 12 },
+  routeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  routeBadge: {
+    fontSize: 9,
+    fontWeight: '900',
+    color: '#047857',
+    backgroundColor: '#D1FAE5',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
   dangerBadge: { color: '#B91C1C', backgroundColor: '#FEE2E2' },
-  routeTitle: { fontSize: 17, fontWeight: '900', color: '#0F172A', marginBottom: 8 },
-  routeMeta: { fontSize: 12, lineHeight: 17, color: '#475569', fontWeight: '700' },
-  routePath: { flexDirection: 'row', alignItems: 'center', marginVertical: 22 },
-  routeDot: { width: 14, height: 14, borderRadius: 7, backgroundColor: '#047857' },
-  routeLine: { flex: 1, height: 4, backgroundColor: '#86EFAC' },
-  routeNote: { fontSize: 12, color: '#334155', lineHeight: 17 },
-  depthStrip: { flexDirection: 'row', gap: 5, marginVertical: 22 },
-  depthBlock: { flex: 1, height: 44, borderRadius: 10, backgroundColor: '#BAE6FD', alignItems: 'center', justifyContent: 'center' },
-  depthBlockDanger: { backgroundColor: '#FB7185' },
-  depthText: { fontSize: 11, color: '#0F172A', fontWeight: '900' },
+  routeTitle: { fontSize: 15, fontWeight: '900', color: '#0F172A' },
+  routeMeta: { fontSize: 11, color: '#475569', fontWeight: '700' },
+  routePathSummary: { fontSize: 10, color: '#64748B', lineHeight: 14, marginVertical: 4 },
+  routeNote: { fontSize: 11, color: '#334155', lineHeight: 15 },
+  explanationBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#E0F2FE',
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#BAE6FD',
+  },
+  explanationText: { flex: 1, fontSize: 12, color: '#0369A1', fontWeight: '700', lineHeight: 17 },
 });

@@ -1,136 +1,194 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import MapView, { Circle, Marker, type Region } from 'react-native-maps';
+import MapView, { Marker, Polyline, type Region } from 'react-native-maps';
 import type { MainTabScreenProps } from '../navigation/types';
+import {
+  fetchFloodPredictions,
+  fetchSafeRoute,
+  fetchRoadGeometry,
+  CORRIDOR_LANDMARKS,
+  SafeRouteResponse,
+  FloodPredictionResponse,
+} from '../../services/drainApi';
 
-const ZONES = [
-  { id: 'ND', name: 'North Delhi', depth: 18, risk: 'Watch', color: '#F4C95D', coordinate: { latitude: 28.7041, longitude: 77.1025 }, radius: 2600 },
-  { id: 'ED', name: 'Yamuna Bank', depth: 46, risk: 'Critical', color: '#F05D5E', coordinate: { latitude: 28.6506, longitude: 77.2392 }, radius: 4200 },
-  { id: 'CD', name: 'Central Delhi', depth: 31, risk: 'Rising', color: '#F59E0B', coordinate: { latitude: 28.6328, longitude: 77.2197 }, radius: 3400 },
-  { id: 'SD', name: 'South Delhi', depth: 12, risk: 'Stable', color: '#52B788', coordinate: { latitude: 28.5355, longitude: 77.2410 }, radius: 3900 },
-] as const;
-
-const RAIN_SERIES = [12, 18, 31, 46, 39, 28, 22, 17];
-const DELHI_REGION: Region = {
-  latitude: 28.6139,
-  longitude: 77.2090,
-  latitudeDelta: 0.23,
-  longitudeDelta: 0.18,
+const DELHI_CORRIDOR_REGION: Region = {
+  latitude: 28.6285,
+  longitude: 77.2255,
+  latitudeDelta: 0.024,
+  longitudeDelta: 0.024,
 };
 
 export default function HomeScreen({ navigation }: MainTabScreenProps<'HomeTab'>) {
   const insets = useSafeAreaInsets();
-  const [hour, setHour] = useState(1.5);
-  const [region, setRegion] = useState<Region>(DELHI_REGION);
-  const selected = useMemo(() => ZONES.find((zone) => zone.depth > 35) ?? ZONES[0], []);
+  const [region, setRegion] = useState<Region>(DELHI_CORRIDOR_REGION);
+  const [loading, setLoading] = useState(false);
+  const [isLive, setIsLive] = useState(false);
 
-  const zoom = (factor: number) => {
-    setRegion((current) => ({
-      ...current,
-      latitudeDelta: Math.max(0.018, Math.min(0.45, current.latitudeDelta * factor)),
-      longitudeDelta: Math.max(0.014, Math.min(0.35, current.longitudeDelta * factor)),
-    }));
-  };
+  const [floodData, setFloodData] = useState<FloodPredictionResponse | null>(null);
+  const [safeRouteData, setSafeRouteData] = useState<SafeRouteResponse | null>(null);
+  const [corridorNodes, setCorridorNodes] = useState<any[]>([]);
+  const [routePolyline, setRoutePolyline] = useState<{ latitude: number; longitude: number }[]>([]);
+  const [selectedNode, setSelectedNode] = useState<any | null>(null);
+
+  const loadBackendTelemetry = useCallback(async () => {
+    setLoading(true);
+    console.log('[HomeScreen] Initiating telemetry fetch from FastAPI...');
+
+    try {
+      // 1. Fetch landmark flood depth predictions
+      const floodRes = await fetchFloodPredictions(60.0, 15.0);
+      setFloodData(floodRes);
+      setIsLive(!floodRes.isFallback);
+
+      if (floodRes && floodRes.landmarks) {
+        const formattedNodes = floodRes.landmarks.map((item) => {
+          const coord = CORRIDOR_LANDMARKS[item.landmark] || { latitude: 28.6258, longitude: 77.2342 };
+          return {
+            id: item.landmark.substring(0, 3).toUpperCase(),
+            name: item.landmark,
+            depth: item.predicted_depth_cm,
+            risk: item.risk_level,
+            prob: item.flood_probability,
+            timeToFlood: item.time_to_flood_min,
+            color:
+              item.risk_level === 'CRITICAL'
+                ? '#E11D48'
+                : item.risk_level === 'HIGH'
+                ? '#F59E0B'
+                : item.risk_level === 'MEDIUM'
+                ? '#EAB308'
+                : '#10B981',
+            coordinate: { latitude: coord.latitude, longitude: coord.longitude },
+          };
+        });
+        setCorridorNodes(formattedNodes);
+        if (!selectedNode && formattedNodes.length > 0) {
+          setSelectedNode(formattedNodes[1] || formattedNodes[0]);
+        }
+      }
+
+      // 2. Fetch RL Safe Route
+      const routeRes = await fetchSafeRoute("Mandi House", "Rajiv Chowk Outer Circle");
+      if (routeRes) {
+        setSafeRouteData(routeRes);
+        const pathCoords = await fetchRoadGeometry(routeRes.rl_safe_route);
+        setRoutePolyline(pathCoords);
+      }
+    } catch (err) {
+      console.error('[HomeScreen] Telemetry load error:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedNode]);
+
+  useEffect(() => {
+    loadBackendTelemetry();
+  }, []);
 
   return (
     <View style={styles.screen}>
+      {/* Floating Header */}
       <View style={[styles.header, { top: Math.max(insets.top, 14) }]}>
         <View style={styles.brandMark}>
-          <Ionicons name="water" size={18} color="#083344" />
+          <Ionicons name="water" size={20} color="#0E7490" />
         </View>
         <View style={styles.headerCopy}>
-          <Text style={styles.brand}>DrainWatch Command</Text>
+          <Text style={styles.brand}>DrainMonitor Pilot Corridor</Text>
           <View style={styles.statusRow}>
-            <View style={styles.liveDot} />
-            <Text style={styles.statusText}>Telemetry Active</Text>
+            <View style={[styles.liveDot, { backgroundColor: isLive ? '#10B981' : '#F59E0B' }]} />
+            <Text style={styles.statusText}>
+              {isLive ? 'FastAPI Telemetry Live' : 'Offline Simulation Mode'}
+            </Text>
           </View>
         </View>
-        <TouchableOpacity style={styles.trayButton} onPress={() => navigation.navigate('NotificationsTab')}>
-          <Ionicons name="notifications-outline" size={20} color="#0F172A" />
-          <View style={styles.trayBadge} />
+        <TouchableOpacity
+          style={styles.refreshButton}
+          onPress={loadBackendTelemetry}
+          disabled={loading}
+        >
+          {loading ? (
+            <ActivityIndicator size="small" color="#0E7490" />
+          ) : (
+            <Ionicons name="refresh" size={18} color="#0E7490" />
+          )}
         </TouchableOpacity>
       </View>
 
+      {/* Map Surface */}
       <View style={styles.mapCanvas}>
         <MapView
           style={StyleSheet.absoluteFill}
           region={region}
           onRegionChangeComplete={setRegion}
-          showsUserLocation
           showsCompass
-          showsScale
-          rotateEnabled={false}
-          pitchEnabled={false}
-          zoomEnabled
-          scrollEnabled
+          showsUserLocation
         >
-          {ZONES.map((zone) => (
-            <Circle
-              key={`${zone.id}-heat`}
-              center={zone.coordinate}
-              radius={zone.radius}
-              fillColor={`${zone.color}88`}
-              strokeColor={zone.color}
-              strokeWidth={2}
+          {/* Safe RL Polyline */}
+          {routePolyline.length > 0 && (
+            <Polyline
+              coordinates={routePolyline}
+              strokeColor="#0284C7"
+              strokeWidth={5}
             />
-          ))}
-          {ZONES.map((zone) => (
-            <Marker key={zone.id} coordinate={zone.coordinate} title={zone.name} description={`${zone.depth} cm · ${zone.risk}`}>
-              <View style={styles.mapMarker}>
-                <Text style={styles.zoneId}>{zone.id}</Text>
-                <Text style={styles.zoneDepth}>{zone.depth} cm</Text>
+          )}
+
+          {/* Corridor Nodes Markers */}
+          {corridorNodes.map((node) => (
+            <Marker
+              key={node.name}
+              coordinate={node.coordinate}
+              title={node.name}
+              description={`${node.depth.toFixed(1)} cm depth · ${node.risk}`}
+              onPress={() => setSelectedNode(node)}
+            >
+              <View style={[styles.mapMarker, { borderColor: node.color }]}>
+                <Text style={styles.zoneId}>{node.id}</Text>
+                <Text style={[styles.zoneDepth, { color: node.color }]}>
+                  {node.depth.toFixed(0)}cm
+                </Text>
               </View>
             </Marker>
           ))}
         </MapView>
-        <View style={styles.mapLabel}>
-          <Ionicons name="map-outline" size={15} color="#0F766E" />
-          <Text style={styles.mapLabelText}>Live Delhi heatmap</Text>
-        </View>
-        <View style={styles.zoomControls}>
-          <TouchableOpacity style={styles.zoomButton} onPress={() => zoom(0.62)}>
-            <Ionicons name="add" size={22} color="#0F172A" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.zoomButton} onPress={() => zoom(1.38)}>
-            <Ionicons name="remove" size={22} color="#0F172A" />
-          </TouchableOpacity>
-        </View>
-        <View style={styles.radarSweep} />
       </View>
 
+      {/* Telemetry Summary Cards */}
       <View style={[styles.telemetryCard, { bottom: 18 + insets.bottom }]}>
-        <View style={styles.cardHeader}>
-          <View>
-            <Text style={styles.cardTitle}>0-3 Hour Rain Telemetry</Text>
-            <Text style={styles.cardSub}>WAPI radar + MI surface flood model, refresh 5 min</Text>
+        <View style={styles.statsRow}>
+          <View style={styles.statBox}>
+            <Text style={styles.statLabel}>Rainfall</Text>
+            <Text style={styles.statVal}>{floodData?.rainfall_mm_hr ?? 60} mm/h</Text>
           </View>
-          <View style={styles.depthPill}>
-            <Text style={styles.depthPillText}>{selected.risk}</Text>
+          <View style={styles.statBox}>
+            <Text style={styles.statLabel}>Max Depth</Text>
+            <Text style={[styles.statVal, { color: '#E11D48' }]}>
+              {floodData ? `${floodData.max_surface_depth_cm.toFixed(1)} cm` : '--'}
+            </Text>
+          </View>
+          <View style={styles.statBox}>
+            <Text style={styles.statLabel}>RL Route Time</Text>
+            <Text style={[styles.statVal, { color: '#0284C7' }]}>
+              {safeRouteData ? `${safeRouteData.rl_travel_time_min} min` : '--'}
+            </Text>
           </View>
         </View>
 
-        <View style={styles.sliderTrack}>
-          <View style={[styles.sliderFill, { width: `${(hour / 3) * 100}%` }]} />
-          {[0, 1, 2, 3].map((value) => (
-            <TouchableOpacity key={value} style={styles.sliderHit} onPress={() => setHour(value)}>
-              <View style={[styles.sliderTick, Math.round(hour) === value && styles.sliderTickActive]} />
-            </TouchableOpacity>
-          ))}
-        </View>
-        <View style={styles.sliderLabels}>
-          <Text style={styles.miniLabel}>Now</Text>
-          <Text style={styles.miniLabel}>+{hour.toFixed(1)}h forecast</Text>
-          <Text style={styles.miniLabel}>+3h</Text>
-        </View>
+        <View style={styles.decisionDivider} />
 
-        <View style={styles.chartRow}>
-          {RAIN_SERIES.map((value, index) => (
-            <View key={`${value}-${index}`} style={styles.chartColumn}>
-              <View style={[styles.chartBar, { height: 24 + value }]} />
-            </View>
-          ))}
+        <View style={styles.decisionRow}>
+          <Ionicons
+            name={safeRouteData?.hazard_avoided ? 'shield-checkmark' : 'navigate-circle'}
+            size={22}
+            color={safeRouteData?.hazard_avoided ? '#059669' : '#0284C7'}
+          />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.cardTitle}>Q-Learning Safe Route Policy</Text>
+            <Text style={styles.cardSub} numberOfLines={2}>
+              {safeRouteData ? safeRouteData.recommendation_reason : 'Querying policy from FastAPI...'}
+            </Text>
+          </View>
         </View>
       </View>
     </View>
@@ -145,47 +203,83 @@ const styles = StyleSheet.create({
     right: 16,
     zIndex: 3,
     minHeight: 62,
-    borderRadius: 28,
-    backgroundColor: 'rgba(255,255,255,0.92)',
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.95)',
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    padding: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    boxShadow: '0 10px 28px rgba(15, 23, 42, 0.12)',
+    gap: 12,
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 4 },
+    shadowRadius: 10,
+    elevation: 4,
   },
-  brandMark: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#CFFAFE', alignItems: 'center', justifyContent: 'center' },
+  brandMark: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#E0F2FE',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   headerCopy: { flex: 1 },
-  brand: { fontSize: 16, fontWeight: '800', color: '#0F172A' },
-  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 },
-  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#10B981' },
-  statusText: { fontSize: 12, color: '#475569', fontWeight: '700' },
-  trayButton: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#F8FAFC', alignItems: 'center', justifyContent: 'center' },
-  trayBadge: { position: 'absolute', top: 9, right: 10, width: 8, height: 8, borderRadius: 4, backgroundColor: '#E11D48' },
+  brand: { fontSize: 15, fontWeight: '800', color: '#0F172A' },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
+  liveDot: { width: 8, height: 8, borderRadius: 4 },
+  statusText: { fontSize: 11, color: '#475569', fontWeight: '700' },
+  refreshButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   mapCanvas: { flex: 1, backgroundColor: '#DDEBE8', overflow: 'hidden' },
-  mapMarker: { minWidth: 68, borderRadius: 16, borderCurve: 'continuous', borderWidth: 1, borderColor: 'rgba(255,255,255,0.9)', padding: 8, backgroundColor: 'rgba(255,255,255,0.86)', alignItems: 'center', boxShadow: '0 5px 12px rgba(15,23,42,0.18)' },
-  zoneId: { fontSize: 12, fontWeight: '900', color: '#0F172A' },
-  zoneDepth: { fontSize: 13, color: '#0F172A', fontWeight: '900', fontVariant: ['tabular-nums'] },
-  mapLabel: { position: 'absolute', left: 18, top: 98, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.9)', paddingHorizontal: 11, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', gap: 6 },
-  mapLabelText: { fontSize: 12, color: '#0F172A', fontWeight: '900' },
-  zoomControls: { position: 'absolute', right: 16, top: 96, gap: 8 },
-  zoomButton: { width: 42, height: 42, borderRadius: 21, backgroundColor: 'rgba(255,255,255,0.94)', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 18px rgba(15,23,42,0.14)' },
-  radarSweep: { position: 'absolute', width: 190, height: 190, borderRadius: 95, top: '34%', left: '27%', borderWidth: 1, borderColor: 'rgba(14, 165, 233, 0.35)', backgroundColor: 'rgba(14, 165, 233, 0.08)' },
-  telemetryCard: { position: 'absolute', left: 16, right: 16, borderRadius: 26, borderCurve: 'continuous', padding: 18, backgroundColor: '#EEF5F3', boxShadow: 'inset 4px 4px 10px rgba(148, 163, 184, 0.45), inset -5px -5px 12px rgba(255,255,255,0.95), 0 18px 40px rgba(15,23,42,0.16)' },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' },
-  cardTitle: { fontSize: 16, fontWeight: '900', color: '#0F172A' },
-  cardSub: { fontSize: 12, color: '#64748B', marginTop: 3, maxWidth: 230 },
-  depthPill: { borderRadius: 18, backgroundColor: '#FFE4E6', paddingHorizontal: 10, paddingVertical: 6 },
-  depthPillText: { color: '#BE123C', fontSize: 11, fontWeight: '900' },
-  sliderTrack: { marginTop: 18, height: 22, borderRadius: 11, backgroundColor: '#D8E6E2', flexDirection: 'row', overflow: 'hidden' },
-  sliderFill: { position: 'absolute', left: 0, top: 0, bottom: 0, backgroundColor: '#0891B2' },
-  sliderHit: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  sliderTick: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#FFFFFF' },
-  sliderTickActive: { width: 16, height: 16, borderRadius: 8, backgroundColor: '#0F172A' },
-  sliderLabels: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 7 },
-  miniLabel: { fontSize: 11, color: '#64748B', fontWeight: '700' },
-  chartRow: { flexDirection: 'row', gap: 8, alignItems: 'flex-end', height: 82, marginTop: 12 },
-  chartColumn: { flex: 1, alignItems: 'center', justifyContent: 'flex-end' },
-  chartBar: { width: '100%', borderRadius: 8, backgroundColor: '#0E7490' },
+  mapMarker: {
+    minWidth: 54,
+    borderRadius: 14,
+    borderWidth: 2,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(255,255,255,0.96)',
+    alignItems: 'center',
+  },
+  zoneId: { fontSize: 10, fontWeight: '900', color: '#0F172A' },
+  zoneDepth: { fontSize: 11, fontWeight: '900' },
+  telemetryCard: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    borderRadius: 22,
+    padding: 16,
+    backgroundColor: 'rgba(255,255,255,0.97)',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.12,
+    shadowOffset: { width: 0, height: 6 },
+    shadowRadius: 12,
+    elevation: 6,
+    gap: 12,
+  },
+  statsRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
+  statBox: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+  },
+  statLabel: { fontSize: 10, color: '#64748B', fontWeight: '700', textTransform: 'uppercase' },
+  statVal: { fontSize: 14, fontWeight: '900', color: '#0F172A', marginTop: 2 },
+  decisionDivider: { height: 1, backgroundColor: '#F1F5F9' },
+  decisionRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  cardTitle: { fontSize: 14, fontWeight: '900', color: '#0F172A' },
+  cardSub: { fontSize: 12, color: '#475569', marginTop: 2, lineHeight: 16 },
 });

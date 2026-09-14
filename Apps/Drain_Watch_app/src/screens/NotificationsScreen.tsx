@@ -1,73 +1,187 @@
-import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import type { MainTabScreenProps } from '../navigation/types';
+import { fetchFloodPredictions, FloodPredictionResponse } from '../../services/drainApi';
 
-const ALERTS = [
-  { id: 'ALT-91', type: 'Critical Surcharges', title: 'Storm drain surcharge predicted', zone: 'Rail Underpass B4', time: '09:42', unread: true },
-  { id: 'ALT-87', type: 'Advisories', title: 'School zone diversion advisory', zone: 'Civic Ward A1', time: '09:18', unread: true },
-  { id: 'ALT-72', type: 'Critical Surcharges', title: 'Pump station load above threshold', zone: 'Market Basin C2', time: '08:55', unread: false },
-  { id: 'ALT-63', type: 'Advisories', title: 'Public bulletin: avoid low-lying service road', zone: 'North Link D6', time: '08:30', unread: false },
-] as const;
+interface DynamicAlert {
+  id: string;
+  type: 'Critical Surcharges' | 'Advisories';
+  title: string;
+  zone: string;
+  depth: number;
+  time: string;
+  unread: boolean;
+}
 
 const FILTERS = ['All Feeds', 'Critical Surcharges', 'Advisories'] as const;
 
 export default function NotificationsScreen({ navigation }: MainTabScreenProps<'NotificationsTab'>) {
   const insets = useSafeAreaInsets();
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>('All Feeds');
+  const [loading, setLoading] = useState(false);
+  const [floodData, setFloodData] = useState<FloodPredictionResponse | null>(null);
+
+  const loadAlerts = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetchFloodPredictions(60.0, 15.0);
+      setFloodData(res);
+    } catch (e) {
+      console.error('[NotificationsScreen] Error loading alerts:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadAlerts();
+  }, [loadAlerts]);
+
+  // Transform live backend landmark hazards into dynamic municipal alerts
+  const alerts: DynamicAlert[] = useMemo(() => {
+    if (!floodData || !floodData.landmarks) return [];
+
+    const generated: DynamicAlert[] = [];
+    let idx = 101;
+
+    // Check active blockages first
+    if (floodData.active_blockages) {
+      Object.entries(floodData.active_blockages).forEach(([loc, ratio]) => {
+        generated.push({
+          id: `BLK-${idx++}`,
+          type: 'Critical Surcharges',
+          title: `Reported Drain Blockage: ${Math.round(ratio * 100)}% capacity reduction`,
+          zone: loc,
+          depth: 25.0,
+          time: 'Just now',
+          unread: true,
+        });
+      });
+    }
+
+    // Process landmark predictions
+    floodData.landmarks.forEach((item) => {
+      if (item.predicted_depth_cm >= 15.0 || item.risk_level === 'CRITICAL') {
+        generated.push({
+          id: `ALT-${idx++}`,
+          type: 'Critical Surcharges',
+          title: `Severe Waterlogging: ${item.predicted_depth_cm.toFixed(1)} cm projected depth`,
+          zone: item.landmark,
+          depth: item.predicted_depth_cm,
+          time: `${item.time_to_flood_min}m window`,
+          unread: true,
+        });
+      } else if (item.predicted_depth_cm >= 8.0 || item.risk_level === 'HIGH' || item.risk_level === 'MEDIUM') {
+        generated.push({
+          id: `ADV-${idx++}`,
+          type: 'Advisories',
+          title: `Surface Runoff Advisory (${item.predicted_depth_cm.toFixed(1)} cm depth)`,
+          zone: item.landmark,
+          depth: item.predicted_depth_cm,
+          time: `${item.time_to_flood_min}m window`,
+          unread: false,
+        });
+      }
+    });
+
+    return generated;
+  }, [floodData]);
 
   const filteredAlerts = useMemo(
-    () => ALERTS.filter((alert) => filter === 'All Feeds' || alert.type === filter),
-    [filter],
+    () => alerts.filter((alert) => filter === 'All Feeds' || alert.type === filter),
+    [alerts, filter]
   );
+
+  const unreadCount = useMemo(() => alerts.filter((a) => a.unread).length, [alerts]);
 
   return (
     <View style={styles.screen}>
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 16) + 8 }]}>
-        <View>
+        <View style={{ flex: 1 }}>
           <Text style={styles.title}>System Alerts</Text>
-          <Text style={styles.subtitle}>Weather advisories and municipal bulletins</Text>
+          <Text style={styles.subtitle}>
+            {floodData?.isFallback
+              ? 'Telemetry cache · Pull to refresh'
+              : 'Live telemetry from FastAPI Surrogate Predictor'}
+          </Text>
         </View>
-        <View style={styles.unreadBubble}>
-          <Text style={styles.unreadText}>2</Text>
-        </View>
+        <TouchableOpacity style={styles.refreshIconBtn} onPress={loadAlerts} disabled={loading}>
+          {loading ? (
+            <ActivityIndicator size="small" color="#0E7490" />
+          ) : (
+            <Ionicons name="refresh" size={20} color="#0E7490" />
+          )}
+        </TouchableOpacity>
+        {unreadCount > 0 && (
+          <View style={styles.unreadBubble}>
+            <Text style={styles.unreadText}>{unreadCount}</Text>
+          </View>
+        )}
       </View>
 
       <View style={styles.segmented}>
         {FILTERS.map((item) => {
           const active = item === filter;
           return (
-            <TouchableOpacity key={item} style={[styles.segment, active && styles.segmentActive]} onPress={() => setFilter(item)}>
+            <TouchableOpacity
+              key={item}
+              style={[styles.segment, active && styles.segmentActive]}
+              onPress={() => setFilter(item)}
+            >
               <Text style={[styles.segmentText, active && styles.segmentTextActive]}>{item}</Text>
             </TouchableOpacity>
           );
         })}
       </View>
 
-      <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
-        {filteredAlerts.map((alert) => {
-          const critical = alert.type === 'Critical Surcharges';
-          return (
-            <View key={alert.id} style={styles.alertCard}>
-              <View style={[styles.alertIcon, critical ? styles.criticalIcon : styles.advisoryIcon]}>
-                <Ionicons name={critical ? 'flash-outline' : 'information-circle-outline'} size={22} color={critical ? '#BE123C' : '#0E7490'} />
-              </View>
-              <View style={styles.alertBody}>
-                <View style={styles.alertTopline}>
-                  <Text style={styles.alertType}>{alert.type}</Text>
-                  {alert.unread ? <View style={styles.unreadDot} /> : null}
+      <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
+        contentContainerStyle={styles.list}
+        showsVerticalScrollIndicator={false}
+      >
+        {filteredAlerts.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Ionicons name="checkmark-circle-outline" size={44} color="#10B981" />
+            <Text style={styles.emptyTitle}>Corridor Clear</Text>
+            <Text style={styles.emptySub}>No active flood surcharges or blockage advisories.</Text>
+          </View>
+        ) : (
+          filteredAlerts.map((alert) => {
+            const critical = alert.type === 'Critical Surcharges';
+            return (
+              <View key={alert.id} style={styles.alertCard}>
+                <View style={[styles.alertIcon, critical ? styles.criticalIcon : styles.advisoryIcon]}>
+                  <Ionicons
+                    name={critical ? 'flash-outline' : 'information-circle-outline'}
+                    size={22}
+                    color={critical ? '#BE123C' : '#0E7490'}
+                  />
                 </View>
-                <Text style={styles.alertTitle}>{alert.title}</Text>
-                <Text style={styles.alertMeta}>{alert.time} · {alert.zone}</Text>
-                <TouchableOpacity style={styles.deployButton} onPress={() => navigation.navigate('HomeTab')}>
-                  <Ionicons name="map-outline" size={16} color="#FFFFFF" />
-                  <Text style={styles.deployText}>Deploy Route Mitigation</Text>
-                </TouchableOpacity>
+                <View style={styles.alertBody}>
+                  <View style={styles.alertTopline}>
+                    <Text style={[styles.alertType, { color: critical ? '#BE123C' : '#0E7490' }]}>
+                      {alert.type}
+                    </Text>
+                    {alert.unread ? <View style={styles.unreadDot} /> : null}
+                  </View>
+                  <Text style={styles.alertTitle}>{alert.title}</Text>
+                  <Text style={styles.alertMeta}>
+                    {alert.time} · {alert.zone}
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.deployButton}
+                    onPress={() => navigation.navigate('ExploreTab')}
+                  >
+                    <Ionicons name="navigate-outline" size={15} color="#FFFFFF" />
+                    <Text style={styles.deployText}>View Safe Reroute</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-            </View>
-          );
-        })}
+            );
+          })
+        )}
       </ScrollView>
     </View>
   );
@@ -75,27 +189,93 @@ export default function NotificationsScreen({ navigation }: MainTabScreenProps<'
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#F4F8F7' },
-  header: { paddingHorizontal: 18, paddingBottom: 14, backgroundColor: '#F4F8F7', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  title: { fontSize: 27, fontWeight: '900', color: '#0F172A' },
-  subtitle: { fontSize: 13, color: '#64748B', marginTop: 3 },
-  unreadBubble: { width: 42, height: 42, borderRadius: 21, backgroundColor: '#BE123C', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 18px rgba(190,18,60,0.22)' },
-  unreadText: { color: '#FFFFFF', fontWeight: '900', fontSize: 16 },
-  segmented: { marginHorizontal: 18, borderRadius: 22, backgroundColor: '#E2E8F0', padding: 4, flexDirection: 'row', gap: 4 },
-  segment: { flex: 1, minHeight: 38, borderRadius: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
-  segmentActive: { backgroundColor: '#FFFFFF', boxShadow: '0 4px 12px rgba(15,23,42,0.08)' },
-  segmentText: { fontSize: 11, color: '#64748B', fontWeight: '900', textAlign: 'center' },
+  header: {
+    paddingHorizontal: 18,
+    paddingBottom: 14,
+    backgroundColor: '#F4F8F7',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  title: { fontSize: 26, fontWeight: '900', color: '#0F172A' },
+  subtitle: { fontSize: 12, color: '#64748B', marginTop: 2 },
+  refreshIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#E0F2FE',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  unreadBubble: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#BE123C',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  unreadText: { color: '#FFFFFF', fontWeight: '900', fontSize: 14 },
+  segmented: {
+    marginHorizontal: 18,
+    borderRadius: 20,
+    backgroundColor: '#E2E8F0',
+    padding: 4,
+    flexDirection: 'row',
+    gap: 4,
+  },
+  segment: {
+    flex: 1,
+    minHeight: 36,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+  },
+  segmentActive: { backgroundColor: '#FFFFFF' },
+  segmentText: { fontSize: 11, color: '#64748B', fontWeight: '800', textAlign: 'center' },
   segmentTextActive: { color: '#0F172A' },
   list: { padding: 18, paddingBottom: 34, gap: 12 },
-  alertCard: { flexDirection: 'row', gap: 13, borderRadius: 20, backgroundColor: '#F8FAFC', padding: 15, borderWidth: 1, borderColor: '#E2E8F0', boxShadow: 'inset -4px -4px 9px rgba(255,255,255,0.96), inset 4px 4px 9px rgba(148,163,184,0.24), 0 8px 18px rgba(15,23,42,0.06)' },
-  alertIcon: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center' },
+  alertCard: {
+    flexDirection: 'row',
+    gap: 12,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  alertIcon: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
   criticalIcon: { backgroundColor: '#FFE4E6' },
   advisoryIcon: { backgroundColor: '#CFFAFE' },
-  alertBody: { flex: 1, gap: 6 },
+  alertBody: { flex: 1, gap: 4 },
   alertTopline: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  alertType: { fontSize: 11, color: '#0E7490', fontWeight: '900', textTransform: 'uppercase' },
+  alertType: { fontSize: 10, fontWeight: '900', textTransform: 'uppercase' },
   unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#BE123C' },
-  alertTitle: { fontSize: 16, lineHeight: 21, color: '#0F172A', fontWeight: '900' },
-  alertMeta: { fontSize: 12, color: '#64748B', fontWeight: '700' },
-  deployButton: { alignSelf: 'flex-start', marginTop: 6, borderRadius: 18, paddingHorizontal: 12, paddingVertical: 9, backgroundColor: '#0F766E', flexDirection: 'row', alignItems: 'center', gap: 7 },
-  deployText: { color: '#FFFFFF', fontSize: 12, fontWeight: '900' },
+  alertTitle: { fontSize: 15, lineHeight: 20, color: '#0F172A', fontWeight: '800' },
+  alertMeta: { fontSize: 12, color: '#64748B', fontWeight: '600' },
+  deployButton: {
+    alignSelf: 'flex-start',
+    marginTop: 6,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    backgroundColor: '#0F766E',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  deployText: { color: '#FFFFFF', fontSize: 11, fontWeight: '800' },
+  emptyCard: {
+    padding: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    gap: 8,
+  },
+  emptyTitle: { fontSize: 16, fontWeight: '900', color: '#0F172A' },
+  emptySub: { fontSize: 12, color: '#64748B', textAlign: 'center' },
 });
