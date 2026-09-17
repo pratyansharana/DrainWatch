@@ -1,116 +1,308 @@
-# 🌊 Flood & Furious | NCT of Delhi Flood Disaster Authority Command & Control System
+# Front‑End ‑ Flood & Furious (React + Vite + Tailwind)
 
-> A mission-critical, full-stack real-time situational awareness, flood forecasting, and emergency dispatch platform built exclusively for the **National Capital Territory of Delhi (NCT of Delhi)** flood management authorities: **DDMA**, **I&FC Department**, **NDRF 8th Battalion**, **Delhi Traffic Police**, **Delhi Fire Service**, **DJB**, **PWD Delhi**, and **MCD**.
-
-Built directly according to the project architecture diagram and enterprise specifications:
-- **Frontend**: React.js 18 + Tailwind CSS (100% SVG & Lucide vector graphics, **zero PNGs/photos**)
-- **GIS / Maps**: MapLibre GL JS (Vector Map, GeoJSON Polygons & Drainage Lines for NCT of Delhi)
-- **Backend**: Node.js + Express.js
-- **Database**: PostgreSQL + PostGIS (Spatial queries with explicit PostGIS `SELECT` statements and high-fidelity fallback)
-- **Caching**: Redis (with automatic in-memory TTL fallback)
-- **Real-Time Gateway**: Socket.IO / WebSockets
-- **Authentication**: JWT & Role-Based Access Control
-- **Routing**: Safe Emergency Service Routing with OSRM + flood ground clearance avoidance
-- **Deployment**: Docker (`docker-compose.yml`) + AWS Production Architecture
+> **Project name**: *Flood & Furious – NCT of Delhi Flood Authority Command & Control System*
+> **Frontend stack**: React 18, Vite, Tailwind CSS, MapLibre GL JS, Recharts, Lucide icons, Socket.IO client, JWT auth.
 
 ---
 
-## 🎯 Architecture Diagram Mapping & Features
+## Table of Contents
 
-| Diagram Component | Implementation in Platform |
-| :--- | :--- |
-| **W API (Weather API)** | Real-time weather telemetry from IMD Safdarjung & Palam with automated **15-minute rainfall checks**, Doppler storm alert levels, and precipitation forecasts. |
-| **ML Model (Prediction - Realtime)** | **5-minute hydrodynamic flood prediction engine** calculating runoff ($Q = C \times I \times A$), drainage outflow, soil absorption, and sector flood risk. |
-| **Static Data - Pipelines, Network** | Delhi stormwater drainage network GeoJSON (Najafgarh Trunk Drain, Barapullah Drain, Supplementary Drain, Shahdara Drain) with pipe diameters, flow ($m^3/s$), load %, and pump station SCADA controls. |
-| **Live Segmented View of City Map** | Interactive **MapLibre GL JS** vector map displaying color-coded Delhi segments (Yamuna Floodplain, Kashmere Gate ISBT, Minto Bridge, ITO Junction, Pul Prahladpur, Mayur Vihar). |
-| **Ping Concerned Auth.** | Direct encrypted inter-agency dispatch hotlines for **DDMA, I&FC, NDRF 8th Battalion, Delhi Traffic Police, DFS, DJB, PWD, and MCD** with live acknowledgment tracking. |
-| **Alerts to the Citizen** | Multi-channel broadcast composer (Citizen App Push, Emergency SMS, Traffic VMS Roadside Displays, Public Sirens). |
-| **Citizen's Grievances Desk** | Crowdsourced grievance review desk inspecting waterlogged locations, water depth in cm, and **Vehicle Ground Clearance** warnings. |
-| **Routes for Emergency Services** | OSRM routing engine with **vehicle ground clearance thresholds** (CATS Ambulance: 22cm, PCR Cruiser: 18cm, Fire Tender: 50cm, NDRF 4x4 Truck: 85cm) dynamically bypassing flooded sectors. |
-| **Chatbot for Manual Options & Updates** | Authority AI Command Copilot allowing operators to query live flood metrics, trigger warnings, adjust pumps, or run cloudburst simulations in plain English. |
-| **Analytics ---** | Executive charts correlating hourly rainfall vs waterlogging depth, Yamuna river level at Old Railway Bridge (Danger mark 205.33m), and incident resolution velocity. |
+1. [Prerequisites](#prerequisites)
+2. [Folder structure (frontend only)](#folder-structure)
+3. [Setup & development](#setup--development)
+4. [Build & production](#build--production)
+5. [Key components & pages](#key-components--pages)
+6. [Styling (Tailwind)](#styling-tailwind)
+7. [Map integration (MapLibre GL JS)](#map-integration)
+8. [Real‑time updates (Socket.IO)](#real‑time-updates)
+9. [Authentication (JWT)](#authentication)
+10. [Testing & linting](#testing--linting)
+11. [Deploying without Docker (quick guide)](#deploying-without-docker)
+12. [Troubleshooting](#troubleshooting)
 
 ---
 
-## 📁 Repository Structure
+## Prerequisites
+
+| Tool | Minimum version | Why |
+|------|-----------------|-----|
+| **Node.js** | v18.x (LTS) | Vite, npm, and the React toolchain |
+| **npm** | 9.x (bundled with Node) | Package management |
+| **Git** | 2.30+ | Version control (clone repo) |
+| **(Optional) Docker** | – | Only needed if you later want the containerised version |
+
+> **Tip** – If you have `nvm` (Node Version Manager) you can run `nvm use` inside the repo to automatically pick the correct Node version.
+
+---
+
+## Folder Structure (frontend)
 
 ```
-flood-authority-platform/
-├── backend/
-│   ├── src/
-│   │   ├── config/          # PostgreSQL + PostGIS & Redis clients with fallback
-│   │   ├── controllers/     # Business logic
-│   │   ├── data/            # Spatial GeoJSON seed data (segments, pipelines, pumps)
-│   │   ├── routes/          # REST API endpoints (auth, segments, weather, drainage, etc.)
-│   │   ├── services/        # 5-min ML prediction loop, OSRM safe router, Socket.IO
-│   │   └── server.js        # Express + HTTP + Socket.IO server
-│   ├── Dockerfile
-│   └── package.json
+frontend/
+│   Dockerfile               # (unused unless you containerise)
+│   index.html               # entry HTML (Vite injects the bundle)
+│   nginx.conf               # Nginx config for production (ignored if not using Docker)
+│   package.json
+│   package-lock.json
+│   postcss.config.js
+│   tailwind.config.js
+│   vite.config.js
 │
-├── frontend/
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── Analytics/   # Recharts telemetry graphs
-│   │   │   ├── Chat/        # Authority AI Copilot chatbot
-│   │   │   ├── Drainage/    # Pump station SCADA & pipeline load gauges
-│   │   │   ├── Emergency/   # Safe transit route planner with clearance filters
-│   │   │   ├── Grievances/  # Citizen waterlogging review queue
-│   │   │   ├── Map/         # MapLibre GL JS vector command map
-│   │   │   ├── ML/          # 5-min ML prediction countdown & cloudburst slider
-│   │   │   ├── Modals/      # Ping authorities modal & Citizen alert broadcaster
-│   │   │   ├── Weather/     # Live W API widget & 15-min check
-│   │   │   └── Navbar.jsx   # Top command bar with role switcher
-│   │   ├── context/         # AuthContext & SocketContext
-│   │   ├── App.jsx          # Main operations view
-│   │   └── index.css        # Custom styles & MapLibre popup themes
-│   ├── Dockerfile
-│   ├── nginx.conf
-│   └── package.json
+├─dist/                      # <-- generated by `npm run build`
+│   (static assets)
 │
-├── aws/
-│   └── DEPLOYMENT_GUIDE.md  # AWS ECS Fargate, RDS PostGIS, ElastiCache, S3 CloudFront
-├── docker-compose.yml       # Complete multi-container orchestration
-└── README.md
+├─node_modules/              # <-- generated by `npm install`
+│
+└─src/
+   │   App.jsx               # root React component, routing, layout
+   │   main.jsx              # React entry point (creates root)
+   │   index.css             # Tailwind import + global styles
+   │
+   ├─components/
+   │   ├─Auth/
+   │   │   └─LoginPage.jsx                # role‑quick‑switch login UI
+   │   ├─Map/
+   │   │   └─MapLibreView.jsx             # MapLibre map + layers
+   │   ├─Modals/
+   │   │   ├─CitizenAlertModal.jsx        # pre‑canned flood alerts
+   │   │   └─… (other modal dialogs)
+   │   ├─Navbar.jsx                       # top navigation with role dropdown
+   │   ├─TelemetryStrip.jsx               # real‑time telemetry bar
+   │   └─… (feature‑specific UI components)
+   │
+   ├─context/
+   │   └─AuthContext.jsx                  # JWT handling, user role, logout
+   │
+   ├─utils/
+   │   ├─api.js                           # thin wrapper around fetch (base URL, auth header)
+   │   └─… (helpers for date formatting, etc.)
+   │
+   └─pages/                               # optional – if you split routes into separate pages
+       ├─Dashboard.jsx
+       ├─Analytics.jsx
+       └─… (other top‑level views)
 ```
 
 ---
 
-## 🚀 Quick Start (Local Development)
+## Setup & Development
 
-### 1. Start the Backend API & WebSocket Server
-```bash
-cd backend
-npm install
-npm start
-```
-*The backend starts on `http://localhost:5000` with real-time Socket.IO and the 5-minute prediction engine.*
+```powershell
+# 1️⃣ Clone the repo (if you haven’t already)
+git clone https://github.com/pratyansharana/DrainWatch.git
+cd DrainWatch/frontend
 
-### 2. Start the Frontend React Application
-In a separate terminal:
-```bash
-cd frontend
-npm install
+# 2️⃣ Install dependencies
+npm ci               # installs exactly the versions from package‑lock (recommended)
+#   or: npm install   # if you prefer a fresh resolution
+
+# 3️⃣ Start the development server
 npm run dev
 ```
-*Open `http://localhost:3000` in your browser.*
+
+- Vite will start a dev server (default: <http://localhost:5173>).
+- API calls are proxied to the backend (running on `http://localhost:5000`) via the `proxy` section in `vite.config.js`. No CORS headaches.
+- Hot‑module replacement (HMR) is enabled – changes appear instantly.
+
+### Available npm scripts (see `package.json`)
+
+| Script | Description |
+|--------|-------------|
+| `dev` | Runs Vite dev server with proxy to backend (`/api/*` → `http://localhost:5000`). |
+| `build` | Produces an optimized static bundle in `dist/`. |
+| `preview` | Serves the `dist/` folder locally (great for post‑build testing). |
+| `lint` | Runs **ESLint** (if configured). |
+| `format` | Runs **Prettier** on the source files. |
 
 ---
 
-## 🐳 Quick Start with Docker Compose
+## Build & Production
 
-To launch the complete containerized environment with PostgreSQL + PostGIS, Redis, Backend, and Frontend:
-```bash
-docker-compose up --build -d
+```powershell
+npm run build      # creates ./dist
+npm run preview    # optional – checks the built bundle locally
 ```
-- **Authority Dashboard**: `http://localhost:3000`
-- **Backend API**: `http://localhost:5000`
-- **Health Check**: `http://localhost:5000/api/health`
+
+The resulting `dist/` folder contains:
+
+- `index.html`
+- Minified CSS (Tailwind)
+- JavaScript bundles (chunks)
+- Asset files (icons, images, etc.)
+
+You can now serve `dist/` with any static‑file server (nginx, Apache, GitHub Pages, Netlify, Vercel, etc.). The repo already contains an `nginx.conf` for a classic Nginx setup—just copy it to `/etc/nginx/nginx.conf` and point the `root` directive at the `dist/` directory if you decide to use Nginx later.
 
 ---
 
-## 🛡️ Pre-Configured Authority User Profiles
+## Key Components & Pages
 
-Use the role switcher in the top right navbar to test different authority viewpoints:
-1. **Sunil Shinde** (`MUNICIPAL_DISASTER_COMMISSIONER`) - Municipal Disaster Management
-2. **Col. R. K. Verma** (`NDRF_COMMANDER`) - 5th Battalion Rescue Operations
-3. **Sneha Sawant** (`TRAFFIC_POLICE_DCP`) - City Traffic Control & Diversions
+| Component | Responsibility | Important props / hooks |
+|-----------|----------------|--------------------------|
+| **`App.jsx`** | Sets up `ReactRouter` routes, wraps everything in `AuthContextProvider`. | Uses `<BrowserRouter>` and `<Routes>` from `react-router-dom`. |
+| **`LoginPage.jsx`** | Simple UI to pick a predefined authority role; POSTs to `/api/auth/login` (JWT returned). | Calls `authLogin` from `AuthContext`. |
+| **`Navbar.jsx`** | Top navigation bar with a role‑switch dropdown (e.g., *IFC Chief Engineer*, *DFS Director*). | Uses `useAuth` to read current user and `logout`. |
+| **`MapLibreView.jsx`** | Renders the MapLibre GL map, adds layers for segments, pipelines, pumps, alerts, and real‑time telemetry. | Subscribes to Socket.IO events (`segment:update`, `alert:new`). |
+| **`CitizenAlertModal.jsx`** | Displays pre‑written flood alerts (Delhi‑specific) as selectable cards. | Reads `ALERT_TEMPLATES` constant; on selection posts a grievance. |
+| **`TelemetryStrip.jsx`** | Horizontal bar that shows live sensor values & rainfall summary. | Updates via Socket.IO `telemetry:update`. |
+| **`AuthContext.jsx`** | Centralised auth state (`user`, `token`, `role`). Stores JWT in `localStorage`. | Provides `login`, `logout`, `switchRole`. |
+| **`api.js`** | Tiny wrapper around `fetch` that automatically injects the JWT header and base URL (`/api`). | `api.get('/segments')`, `api.post('/alerts', data)`. |
+
+---
+
+## Styling (Tailwind)
+
+- Tailwind is configured in `tailwind.config.js` to purge **only** files under `src/**/*.jsx` and `src/**/*.js`.
+- Custom colour palette (`primary`, `secondary`, `danger`, etc.) lives in the `theme.extend.colors` section.
+- Use utility‑first classes throughout the UI, e.g.:
+
+```jsx
+<div className="bg-primary-600 text-white p-4 rounded-md shadow-lg">
+  {/* … */}
+</div>
+```
+
+- Global base styles are imported in `src/index.css`:
+
+```css
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+/* optional custom utilities */
+```
+
+No additional CSS files are required unless you need very specific overrides.
+
+---
+
+## Map Integration (MapLibre GL JS)
+
+- MapLibre instance is created in `MapLibreView.jsx` with source URLs pointing to **OpenStreetMap** tiles.
+- Vector tiles for Delhi’s flood‑prone zones are loaded from a local GeoJSON (or remote endpoint) via `source: 'geojson'`.
+- Layers added:
+  - **Segments** – coloured by flood risk.
+  - **Pipelines / Pump stations** – icons with pop‑ups.
+  - **Alerts** – flashing symbols.
+- Interaction:
+  - Click on a feature → dispatches Redux/Context event to side‑panel.
+  - Hover → tooltip with basic metadata.
+
+If you need to change the basemap, edit the URL in the `style` object inside `MapLibreView.jsx`.
+
+---
+
+## Real‑time Updates (Socket.IO)
+
+The client connects automatically when the component mounts:
+
+```js
+import { io } from "socket.io-client";
+
+const socket = io(import.meta.env.VITE_SOCKET_URL ?? "/socket.io");
+```
+
+Subscribed events (examples):
+
+| Event | Payload | UI reaction |
+|-------|---------|-------------|
+| `segment:update` | `{ id, status, geometry }` | Refresh map layer for that segment. |
+| `alert:new` | `{ alertId, title, description }` | Show toast + add to `CitizenAlertModal`. |
+| `telemetry:update` | `{ sensorId, value }` | Update `TelemetryStrip`. |
+
+The socket is cleaned up on component unmount to avoid memory leaks.
+
+---
+
+## Authentication (JWT)
+
+1. **Login flow** – `POST /api/auth/login` with `{ roleQuickSwitch: "IFC_CHIEF_ENGINEER" }`.
+2. Server returns `{ token, user }`.
+3. `AuthContext` stores `token` in `localStorage` and adds `Authorization: Bearer <token>` to every request via the `api` wrapper.
+4. Protected routes (`/dashboard`, `/analytics`) check `user.role` from the decoded token and hide/disable UI elements accordingly.
+
+> **Important:** When you run the backend locally, `VITE_API_URL` (in `.env` if you create one) defaults to `http://localhost:5000/api`. Adjust it only if the backend runs on a different host/port.
+
+---
+
+## Testing & Linting
+
+The repo does **not** ship a full test suite yet, but the following commands are set up:
+
+```powershell
+npm run lint      # runs ESLint (if you add a .eslintrc)
+npm run format    # runs Prettier – keeps code style consistent
+```
+
+You can add Jest/React‑Testing‑Library tests under `src/__tests__/` and extend the `package.json` scripts:
+
+```json
+"test": "jest"
+```
+
+---
+
+## Deploying without Docker (quick guide)
+
+If you want to host the frontend on a simple static‑file server (e.g., **Nginx**, **Apache**, **GitHub Pages**, **Netlify**), follow these steps:
+
+1. **Build** the production bundle  
+   ```powershell
+   npm run build
+   ```
+2. **Copy** the `dist/` folder to your web‑server’s document root.
+   - **Nginx** (minimal config):
+
+     ```nginx
+     server {
+         listen 80;
+         server_name yourdomain.com;
+
+         root   /var/www/flood-frontend;
+         index  index.html;
+
+         # SPA fallback – always serve index.html for unknown routes
+         location / {
+             try_files $uri $uri/ /index.html;
+         }
+
+         # Proxy API & Socket.IO to the backend (adjust host/port)
+         location /api/ {
+             proxy_pass http://backend:5000;
+         }
+         location /socket.io/ {
+             proxy_pass http://backend:5000;
+             proxy_http_version 1.1;
+             proxy_set_header Upgrade $http_upgrade;
+             proxy_set_header Connection "upgrade";
+         }
+     }
+     ```
+3. **Set environment variables** (if you need a different API URL). For most static hosts you can create an `.env` file at build time:
+
+   ```bash
+   VITE_API_URL=https://api.yourdomain.com
+   VITE_SOCKET_URL=wss://api.yourdomain.com
+   npm run build
+   ```
+4. **Verify**: open the site, login, and ensure the map loads and real‑time updates appear.
+
+---
+
+## Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| `404` on `/api/*` when running dev server | Proxy not applied (vite config missing) | Ensure `vite.config.js` contains the `proxy` block pointing to `http://localhost:5000`. |
+| Map tiles appear gray / missing | No internet or incorrect tile URL | Check `MapLibreView.jsx` `style` URL; confirm connectivity to OpenStreetMap tile server. |
+| Styles look unstyled (plain HTML) | Tailwind not compiled | Run `npm run dev` again; verify `postcss` and `tailwind` plugins are installed. |
+| JWT not sent with requests | `AuthContext` token missing from localStorage | Re‑login; ensure `AuthContext` `login` stores token correctly. |
+| Build fails with “`npm ERR! ERESOLVE unable to resolve dependency tree`” | Version conflict from `package-lock.json` vs `npm install` | Delete `node_modules` and `package-lock.json`, then run `npm install` (or use `npm ci` to stick to the lock file). |
+| Real‑time updates never arrive | Socket.IO connection blocked by firewall / wrong URL | Confirm `VITE_SOCKET_URL` matches the backend’s Socket.IO endpoint (`http://localhost:5000`). |
+
+---
+
+### TL;DR – What you need to push
+- **Keep** all files listed in this README (`vite.config.js`, `tailwind.config.js`, `package.json`, `package-lock.json`).
+- **Exclude** `node_modules/` and any compiled `dist/` folder (add them to `.gitignore`).
+- The rest of the frontend code (`src/…`) is what you’ll ship to GitHub.
+
+Happy coding! 🚀
